@@ -1,0 +1,141 @@
+name: Build Eye Saver
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      signing:
+        description: Artifact signing mode
+        type: choice
+        options: [test, signed]
+        default: test
+      notarize:
+        description: Notarize a signed build using configured Apple API credentials
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    # This ARM64 image is currently a GitHub public preview.
+    runs-on: xcode-27
+    timeout-minutes: 30
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
+      BUILD_KIND: ${{ inputs.signing || 'test' }}
+      NOTARIZE: ${{ inputs.notarize && '1' || '0' }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Select and verify Xcode 27.2 on Apple Silicon
+        run: |
+          test -d "$DEVELOPER_DIR"
+          test "$(uname -m)" = arm64
+          if test "$NOTARIZE" = 1 && test "$BUILD_KIND" != signed; then
+            echo "Notarization requires a signed build." >&2
+            exit 1
+          fi
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-version
+          if ! command -v xcodegen >/dev/null; then brew install xcodegen; fi
+
+      - name: Import optional signing credentials into a temporary Keychain
+        if: github.event_name == 'workflow_dispatch' && inputs.signing == 'signed'
+        env:
+          BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          SIGNING_IDENTITY: ${{ secrets.SIGNING_IDENTITY }}
+          DEVELOPMENT_TEAM: ${{ secrets.DEVELOPMENT_TEAM }}
+          HOST_PROFILE_BASE64: ${{ secrets.HOST_PROFILE_BASE64 }}
+          CONTROL_PROFILE_BASE64: ${{ secrets.CONTROL_PROFILE_BASE64 }}
+        run: |
+          : "${BUILD_CERTIFICATE_BASE64:?Configure BUILD_CERTIFICATE_BASE64}"
+          : "${P12_PASSWORD:?Configure P12_PASSWORD}"
+          : "${KEYCHAIN_PASSWORD:?Configure KEYCHAIN_PASSWORD}"
+          : "${SIGNING_IDENTITY:?Configure SIGNING_IDENTITY}"
+          : "${DEVELOPMENT_TEAM:?Configure DEVELOPMENT_TEAM}"
+          certificate="$RUNNER_TEMP/eyesaver-certificate.p12"
+          keychain="$RUNNER_TEMP/eyesaver-signing.keychain-db"
+          printf '%s' "$BUILD_CERTIFICATE_BASE64" | base64 --decode > "$certificate"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$keychain"
+          security import "$certificate" -P "$P12_PASSWORD" -T /usr/bin/codesign -k "$keychain"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$keychain" >/dev/null
+          security list-keychains -d user -s "$keychain"
+          rm "$certificate"
+          printf 'SIGNING_IDENTITY=%s\nDEVELOPMENT_TEAM=%s\nSIGNING_TIMESTAMP=1\n' "$SIGNING_IDENTITY" "$DEVELOPMENT_TEAM" >> "$GITHUB_ENV"
+          install_profile() {
+            local encoded="$1" setting="$2"
+            test -n "$encoded" || return 0
+            local profile="$RUNNER_TEMP/$setting.provisionprofile" xml="$RUNNER_TEMP/$setting.plist"
+            printf '%s' "$encoded" | base64 --decode > "$profile"
+            security cms -D -i "$profile" > "$xml"
+            local uuid name directory="$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"
+            uuid=$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$xml")
+            name=$(/usr/libexec/PlistBuddy -c 'Print :Name' "$xml")
+            [[ "$uuid" =~ ^[A-Fa-f0-9-]{36}$ ]]
+            [[ "$name" != *$'\n'* && "$name" != *$'\r'* ]]
+            mkdir -p "$directory"
+            cp "$profile" "$directory/$uuid.provisionprofile"
+            printf '%s\n' "$directory/$uuid.provisionprofile" >> "$RUNNER_TEMP/eyesaver-profile-paths"
+            printf '%s=%s\n' "$setting" "$name" >> "$GITHUB_ENV"
+          }
+          install_profile "$HOST_PROFILE_BASE64" HOST_PROFILE_SPECIFIER
+          install_profile "$CONTROL_PROFILE_BASE64" CONTROL_PROFILE_SPECIFIER
+
+      - name: Build app and embedded helper from source
+        run: ./scripts/build.sh
+
+      - name: Run software checks without a physical monitor
+        run: ./scripts/check.sh
+
+      - name: Optionally notarize and staple the signed application
+        if: github.event_name == 'workflow_dispatch' && inputs.notarize
+        env:
+          NOTARY_KEY_BASE64: ${{ secrets.NOTARY_KEY_BASE64 }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+        run: |
+          test "$BUILD_KIND" = signed
+          : "${NOTARY_KEY_BASE64:?Configure NOTARY_KEY_BASE64}"
+          : "${NOTARY_KEY_ID:?Configure NOTARY_KEY_ID}"
+          : "${NOTARY_ISSUER_ID:?Configure NOTARY_ISSUER_ID}"
+          key="$RUNNER_TEMP/eyesaver-notary.p8"
+          printf '%s' "$NOTARY_KEY_BASE64" | base64 --decode > "$key"
+          ditto -c -k --sequesterRsrc --keepParent .build-app/Build/Products/Release/EyeSaver.app .build-app/notarization-upload.zip
+          xcrun notarytool submit .build-app/notarization-upload.zip --key "$key" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID" --wait
+          xcrun stapler staple .build-app/Build/Products/Release/EyeSaver.app
+          xcrun stapler validate .build-app/Build/Products/Release/EyeSaver.app
+
+      - name: Package app and SHA-256 checksum
+        run: ./scripts/package.sh "$BUILD_KIND"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: EyeSaver-${{ env.BUILD_KIND }}-${{ github.sha }}
+          path: |
+            .build-app/artifacts/EyeSaver-${{ env.BUILD_KIND }}.zip
+            .build-app/artifacts/EyeSaver-${{ env.BUILD_KIND }}.zip.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+      - name: Remove temporary signing material
+        if: always() && github.event_name == 'workflow_dispatch' && inputs.signing == 'signed'
+        run: |
+          security delete-keychain "$RUNNER_TEMP/eyesaver-signing.keychain-db" || true
+          if test -f "$RUNNER_TEMP/eyesaver-profile-paths"; then
+            while IFS= read -r profile; do rm -f "$profile"; done < "$RUNNER_TEMP/eyesaver-profile-paths"
+          fi
+          rm -f "$RUNNER_TEMP/eyesaver-certificate.p12" "$RUNNER_TEMP/eyesaver-notary.p8" "$RUNNER_TEMP/eyesaver-profile-paths"
+          rm -f "$RUNNER_TEMP/HOST_PROFILE_SPECIFIER.provisionprofile" "$RUNNER_TEMP/HOST_PROFILE_SPECIFIER.plist"
+          rm -f "$RUNNER_TEMP/CONTROL_PROFILE_SPECIFIER.provisionprofile" "$RUNNER_TEMP/CONTROL_PROFILE_SPECIFIER.plist"
