@@ -16,7 +16,7 @@ Exactly one supported external monitor must be connected. The app and Control Ce
 
 ## Install a prebuilt app
 
-**Prebuilt installation status: release and Homebrew validation is pending.** Source builds remain available below.
+**Development previews are available:** [1.0.0-beta.2](https://github.com/anonimizerme/eye-saver/releases/tag/v1.0.0-beta.2). They use Apple Development signing without notarization; first-launch approval is described below.
 
 Prebuilt apps require no Xcode or local compilation. Both installation methods use the same ARM64 release ZIP and keep one installed copy at `~/Applications/EyeSaver.app`. Read the signing status on the [release page](https://github.com/anonimizerme/eye-saver/releases) before installing.
 
@@ -55,7 +55,7 @@ The cask targets `~/Applications` directly; no `--appdir` option is needed. Wait
 
    ```sh
    cd "$HOME/Downloads"
-   shasum -a 256 -c EyeSaver-1.0.0-beta.1-arm64.zip.sha256
+   shasum -a 256 -c EyeSaver-1.0.0-beta.2-arm64.zip.sha256
    ```
 
 4. Open the ZIP in Finder. Quit any running EyeSaver and wait for its monitor command to finish.
@@ -66,7 +66,7 @@ For updates, repeat these steps with the new release and verify its checksum. If
 
 ### Signing and first-launch approval
 
-A **development preview** is signed with Apple Development and is intended for testing. It is not Developer ID signed or notarized. It can run on a Mac that permits it, but macOS may block its first launch. This does not mean that the monitor protocol needs a different certificate. Control Center acceptance still requires testing on the target Mac.
+A **development preview** is signed with Apple Development and is intended for testing. It is not Developer ID signed or notarized. It can run on a Mac that permits it, but macOS may block its first launch. This does not mean that the monitor protocol needs a different certificate. Reinstalling or updating a preview may require per-app approval again. Control Center acceptance still requires testing on the target Mac.
 
 Only open a preview if you trust the source and the checksum matches. If macOS blocks an unnotarized app that you choose to trust, follow [Apple's per-app approval instructions](https://support.apple.com/102445): try opening it, then review **System Settings → Privacy & Security → Open Anyway**. Do not disable Gatekeeper globally or remove quarantine as part of installation.
 
@@ -187,6 +187,8 @@ The first three events select the Eye Saver icon and advance its native mode. Le
 
 The software checks cover model selection, ambiguous or missing monitors, zero writes for rejected selections, disconnect or write failure handling, duplicate-click suppression, and recovery after errors. They do not prove DDC transport or visible OSD behavior on hardware. Hardware verification is limited to the supported monitor and connection described above.
 
+Browser download and manual installation of beta.1, migration to Homebrew, cask installation/removal/reinstallation, and a beta.1 → beta.2 upgrade were verified on macOS 27.2.1 with that monitor. Cold Control Center invocation worked after both installation methods; three successive presses after the upgrade closed the monitor menu without opening an app window. These checks validate development previews on this Mac, not notarized distribution or acceptance on other Macs.
+
 The app window and cold Control Center invocation have been checked with that monitor. Physical unplugging, including disconnection during a sequence, has not been tested on hardware; those failure paths are covered by software fixtures.
 
 ## GitHub Actions artifacts
@@ -223,6 +225,8 @@ Maintainers use the separate **Release** workflow in [GitHub Actions](https://gi
 4. For a test preview, choose `development-preview` and a prerelease version such as `1.0.0-beta.1`. For a production release, choose `production` and provide Developer ID and notarization credentials.
 
 The workflow resolves the selected source ref to one commit. Tag `vVERSION` points to that exact commit; a conflicting existing tag is rejected. It reuses the build, software-check, and packaging scripts, then attaches `EyeSaver-VERSION-arm64.zip` and its SHA-256 checksum to the release. App and extension use the numeric `MAJOR.MINOR.PATCH` version with the same build number. Preview releases are explicitly marked prereleases and describe their Apple Development signing status.
+
+Every release executable must have a secure Apple timestamp. If Apple timestamp access fails, the release stops; retry it after connectivity recovers rather than disabling the timestamp check.
 
 Only the publishing job has `contents: write`. Push and pull-request checks retain read-only permissions. Production publishing requires successful Developer ID verification and notarization, with no fallback to an ad-hoc or development build.
 
