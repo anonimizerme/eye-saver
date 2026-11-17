@@ -36,6 +36,7 @@ targets:
     postCompileScripts:
       - name: Embed monitor helper
         script: |
+          set -e
           install -m 755 "$DDC_HELPER_PATH" "$TARGET_BUILD_DIR/$EXECUTABLE_FOLDER_PATH/ddc-key"
           timestamp=--timestamp=none
           if [ "${SIGNING_TIMESTAMP:-0}" = "1" ]; then timestamp=--timestamp; fi
