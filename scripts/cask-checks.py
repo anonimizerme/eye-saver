@@ -34,6 +34,8 @@ class CaskChecks(unittest.TestCase):
         self.assertIn('app "EyeSaver.app", target: app_path', TEMPLATE)
         self.assertNotIn("--no-quarantine", TEMPLATE)
         self.assertNotIn("xattr", TEMPLATE)
+        self.assertNotIn("/usr/bin/pluginkit", TEMPLATE)
+        self.assertNotIn("network_access:", TEMPLATE)
         self.assertIn("uninstall_preflight_steps", TEMPLATE)
         self.assertNotIn("uninstall_postflight", TEMPLATE)
         hooks = re.findall(r"<<~'SHELL'.*?\n(.*?)\n\s*SHELL", TEMPLATE, re.S)
@@ -45,6 +47,32 @@ class CaskChecks(unittest.TestCase):
         self.assertIn('lsregister -f -R -trusted "$1"', hooks[1])
         self.assertNotIn("lsregister -u", hooks[1])
         self.assertIn('lsregister -u "$1"', hooks[2])
+
+    def test_postflight_registers_only_after_signature_validation(self):
+        hook = re.findall(r"<<~'SHELL'.*?\n(.*?)\n\s*SHELL", TEMPLATE, re.S)[1]
+        with tempfile.TemporaryDirectory(prefix="eyesaver-cask-register-") as temporary:
+            directory = Path(temporary)
+            codesign = directory / "codesign"
+            codesign.write_text('#!/bin/bash\nexit "$EYESAVER_CHECK_SIGNATURE_STATUS"\n')
+            codesign.chmod(0o755)
+            register = directory / "lsregister"
+            register.write_text('#!/bin/bash\nprintf "%s\\n" "$@" > "$EYESAVER_CHECK_REGISTER_LOG"\n')
+            register.chmod(0o755)
+            command_log = directory / "registration"
+            copied = hook.replace("/usr/bin/codesign", str(codesign)).replace(
+                "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister",
+                str(register))
+            environment = {**os.environ, "EYESAVER_CHECK_SIGNATURE_STATUS": "1",
+                           "EYESAVER_CHECK_REGISTER_LOG": str(command_log)}
+            app = str(directory / "Applications/EyeSaver.app")
+            command = ["/bin/bash", "-c", copied, "cask-postflight", app]
+            result = subprocess.run(command, env=environment, capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(command_log.exists())
+            environment["EYESAVER_CHECK_SIGNATURE_STATUS"] = "0"
+            result = subprocess.run(command, env=environment, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(command_log.read_text().splitlines(), ["-f", "-R", "-trusted", app])
 
     def test_migration_failure_restores_original(self):
         self.migration_failure("install")

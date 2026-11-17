@@ -56,8 +56,9 @@ cask "eye-saver" do
     run "/bin/bash", args: ["-c", <<~'SHELL', "eye-saver-register", app_path], writable_paths: [app_path]
       set -euo pipefail
       /usr/bin/codesign --verify --deep --strict "$1"
+      # Register the containing app; macOS discovers its embedded extension automatically.
+      # Explicit pluginkit registration is blocked by Homebrew's hook sandbox.
       /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f -R -trusted "$1"
-      /usr/bin/pluginkit -a "$1/Contents/PlugIns/EyeSaverControl.appex"
     SHELL
   end
 
@@ -72,7 +73,6 @@ cask "eye-saver" do
       /usr/bin/pkill -u "$(/usr/bin/id -u)" -x EyeSaverControl || true
       if [[ -d "$1" ]]; then
         /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -u "$1" >/dev/null 2>&1 || true
-        /usr/bin/pluginkit -r "$1/Contents/PlugIns/EyeSaverControl.appex" >/dev/null 2>&1 || true
       fi
     SHELL
   end
