@@ -31,6 +31,7 @@ ensure_idle() {
 }
 ensure_idle
 brew tap "$tap" https://github.com/anonimizerme/eye-saver.git
+brew trust --cask "$token"
 backup_root="$HOME/Library/Application Support/EyeSaver/Manual Backups"
 mkdir -p "$backup_root"
 backup=$(mktemp -d "$backup_root/installation.XXXXXX")

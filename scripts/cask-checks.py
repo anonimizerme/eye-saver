@@ -47,6 +47,12 @@ class CaskChecks(unittest.TestCase):
         self.assertIn('lsregister -u "$1"', hooks[2])
 
     def test_migration_failure_restores_original(self):
+        self.migration_failure("install")
+
+    def test_failed_cask_trust_preserves_original(self):
+        self.migration_failure("trust")
+
+    def migration_failure(self, phase):
         with tempfile.TemporaryDirectory(prefix="eyesaver-migration-") as temporary:
             directory = Path(temporary)
             home = directory / "home"
@@ -56,7 +62,18 @@ class CaskChecks(unittest.TestCase):
             commands = directory / "commands"
             commands.mkdir()
             fixtures = {
-                "brew": '#!/bin/bash\ncase "$1" in list) exit 1;; tap) exit 0;; install) exit 9;; *) exit 1;; esac\n',
+                "brew": '''#!/bin/bash
+printf '%s\\n' "$*" >> "$EYESAVER_CHECK_COMMAND_LOG"
+case "$1" in
+  list) exit 1;;
+  tap) exit 0;;
+  trust)
+    [[ "$*" == 'trust --cask anonimizerme/eye-saver/eye-saver' ]] || exit 77
+    [[ "$EYESAVER_CHECK_FAILURE" != trust ]] || exit 8;;
+  install) exit 9;;
+  *) exit 1;;
+esac
+''',
                 "PlistBuddy": '#!/bin/bash\necho local.eyesaver.app\n',
                 "codesign": '#!/bin/bash\nif [[ "$1" == -dvv ]]; then echo "Authority=Apple Development: Test"; fi\n',
                 "pgrep": '#!/bin/bash\nexit 1\n',
@@ -82,10 +99,21 @@ class CaskChecks(unittest.TestCase):
             for source, target in replacements.items(): script = script.replace(source, target)
             copy = directory / "migrate.sh"
             copy.write_text(script)
-            result = subprocess.run(["/bin/bash", str(copy)], env={**os.environ, "EYESAVER_CHECK_HOME": str(home), "PATH": str(commands) + os.pathsep + os.environ["PATH"]}, text=True, capture_output=True)
-            self.assertEqual(result.returncode, 9, result.stderr)
+            command_log = directory / "command-log"
+            environment = {**os.environ, "EYESAVER_CHECK_HOME": str(home),
+                           "EYESAVER_CHECK_FAILURE": phase, "EYESAVER_CHECK_COMMAND_LOG": str(command_log),
+                           "PATH": str(commands) + os.pathsep + os.environ["PATH"]}
+            result = subprocess.run(["/bin/bash", str(copy)], env=environment, text=True, capture_output=True)
+            self.assertEqual(result.returncode, 8 if phase == "trust" else 9, result.stderr)
             self.assertEqual((app / "original").read_text(), "preserve me")
-            self.assertIn("original manual app was restored", result.stderr)
+            calls = command_log.read_text().splitlines()
+            self.assertEqual([call for call in calls if call.startswith("trust")],
+                             ["trust --cask anonimizerme/eye-saver/eye-saver"])
+            if phase == "trust":
+                self.assertFalse(any(call.startswith("install") for call in calls))
+                self.assertFalse((home / "Library/Application Support/EyeSaver/Manual Backups").exists())
+            else:
+                self.assertIn("original manual app was restored", result.stderr)
             self.assertFalse(list(home.glob("Library/Application Support/EyeSaver/Manual Backups/*/bundle")))
 
     def test_preflight_refuses_existing_app_and_active_command(self):

@@ -22,13 +22,16 @@ Prebuilt apps require no Xcode or local compilation. Both installation methods u
 
 ### Homebrew
 
-The cask lives in this repository, so the tap needs an explicit URL:
+This cask requires **Homebrew 7 or later**. It lives in this repository, so the tap needs an explicit URL:
 
 ```sh
 brew tap anonimizerme/eye-saver https://github.com/anonimizerme/eye-saver.git
+brew trust --cask anonimizerme/eye-saver/eye-saver
 brew install --cask anonimizerme/eye-saver/eye-saver
 open "$HOME/Applications/EyeSaver.app"
 ```
+
+The narrow `brew trust --cask` command permits Homebrew to load this cask from this remote, including its later updates; it does not trust every item in the tap. Review the cask before granting trust. Trust normally persists across version updates on the same remote. This is separate from macOS first-launch approval. See [Homebrew's tap trust model](https://docs.brew.sh/Tap-Trust).
 
 If EyeSaver is already installed manually, follow [Move a manual installation to Homebrew](#move-a-manual-installation-to-homebrew) first. The cask refuses to overwrite an unmanaged app or leave another standard-location copy with the same bundle identifier.
 
@@ -87,6 +90,7 @@ Do not install a second copy over the manually installed app. After adding the t
 
 ```sh
 brew tap anonimizerme/eye-saver https://github.com/anonimizerme/eye-saver.git
+brew trust --cask anonimizerme/eye-saver/eye-saver
 bash "$(brew --repository anonimizerme/eye-saver)/scripts/migrate-to-brew.sh"
 ```
 
