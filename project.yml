@@ -68,6 +68,7 @@ targets:
       path: App/Control/Info.plist
       properties:
         CFBundleDisplayName: Eye Saver
+        CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension

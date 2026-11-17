@@ -32,6 +32,17 @@ fi
 timestamp=--timestamp=none
 [[ ${SIGNING_TIMESTAMP:-0} != 1 ]] || timestamp=--timestamp
 xcodegen generate
+set --
+if [[ -n ${APP_VERSION:-} ]]; then
+  [[ "$APP_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
+    echo "APP_VERSION must be a numeric major.minor.patch version." >&2; exit 2;
+  }
+  set -- "$@" "MARKETING_VERSION=$APP_VERSION"
+fi
+if [[ -n ${BUILD_NUMBER:-} ]]; then
+  [[ "$BUILD_NUMBER" =~ ^[1-9][0-9]*$ ]] || { echo "BUILD_NUMBER must be a positive integer." >&2; exit 2; }
+  set -- "$@" "CURRENT_PROJECT_VERSION=$BUILD_NUMBER"
+fi
 xcodebuild -project EyeSaver.xcodeproj -scheme EyeSaver -configuration Release \
   -derivedDataPath "$build_dir" -destination 'generic/platform=macOS' \
   ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
@@ -40,5 +51,6 @@ xcodebuild -project EyeSaver.xcodeproj -scheme EyeSaver -configuration Release \
   "SIGNING_TIMESTAMP=${SIGNING_TIMESTAMP:-0}" "OTHER_CODE_SIGN_FLAGS=$timestamp" \
   "HOST_PROFILE_SPECIFIER=${HOST_PROFILE_SPECIFIER:-}" \
   "CONTROL_PROFILE_SPECIFIER=${CONTROL_PROFILE_SPECIFIER:-}" \
+  "$@" \
   build
 ./scripts/verify-bundle.sh "$build_dir/Build/Products/Release/EyeSaver.app"

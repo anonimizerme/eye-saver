@@ -12,6 +12,7 @@
 !/App/Shared/
 !/App/Tests/
 !/scripts/
+!/Casks/
 !/Vendor/
 /Vendor/*
 !/Vendor/AppleSiliconDDC/
@@ -66,3 +67,5 @@ xcuserdata/
 *.local
 *.xcsettings
 *.cert
+__pycache__/
+*.py[cod]

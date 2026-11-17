@@ -1,0 +1,182 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version without v, for example 1.0.0 or 1.0.0-beta.1
+        type: string
+        required: true
+      source_ref:
+        description: Branch, tag, or commit to build
+        type: string
+        default: main
+        required: true
+      draft:
+        description: Keep the verified release as a draft
+        type: boolean
+        default: true
+      signing_mode:
+        description: Production requires Developer ID and notarization; development previews are test builds
+        type: choice
+        options: [production, development-preview]
+        default: production
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: xcode-27
+    timeout-minutes: 30
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
+      RELEASE_VERSION: ${{ inputs.version }}
+      SIGNING_MODE: ${{ inputs.signing_mode }}
+    steps:
+      - name: Check out workflow tools and full ref history
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate version and resolve the exact source commit
+        id: source
+        env:
+          SOURCE_REF: ${{ inputs.source_ref }}
+        run: |
+          python3 scripts/test_release.py
+          python3 scripts/release.py validate "$RELEASE_VERSION" "$SIGNING_MODE" "$SOURCE_REF"
+          cp scripts/release.py "$RUNNER_TEMP/eyesaver-release.py"
+
+      - name: Check out the resolved source commit
+        env:
+          SOURCE_COMMIT: ${{ steps.source.outputs.commit }}
+        run: |
+          git checkout --detach "$SOURCE_COMMIT"
+          test -d "$DEVELOPER_DIR"
+          test "$(uname -m)" = arm64
+          xcodebuild -version
+          if ! command -v xcodegen >/dev/null; then brew install xcodegen; fi
+          printf 'APP_VERSION=%s\nBUILD_NUMBER=%s\n' '${{ steps.source.outputs.app_version }}' "$((GITHUB_RUN_NUMBER + 100))" >> "$GITHUB_ENV"
+
+      - name: Require the selected signing policy and import existing GitHub Secrets
+        env:
+          BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          SIGNING_IDENTITY: ${{ secrets.SIGNING_IDENTITY }}
+          DEVELOPMENT_TEAM: ${{ secrets.DEVELOPMENT_TEAM }}
+          NOTARY_KEY_BASE64: ${{ secrets.NOTARY_KEY_BASE64 }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+          HOST_PROFILE_BASE64: ${{ secrets.HOST_PROFILE_BASE64 }}
+          CONTROL_PROFILE_BASE64: ${{ secrets.CONTROL_PROFILE_BASE64 }}
+        run: |
+          python3 "$RUNNER_TEMP/eyesaver-release.py" signing-policy "$SIGNING_MODE"
+          certificate="$RUNNER_TEMP/eyesaver-release.p12"
+          keychain="$RUNNER_TEMP/eyesaver-release.keychain-db"
+          printf '%s' "$BUILD_CERTIFICATE_BASE64" | base64 --decode > "$certificate"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$keychain"
+          security import "$certificate" -P "$P12_PASSWORD" -T /usr/bin/codesign -k "$keychain"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$keychain" >/dev/null
+          security list-keychains -d user -s "$keychain"
+          rm "$certificate"
+          printf 'SIGNING_IDENTITY=%s\nDEVELOPMENT_TEAM=%s\nSIGNING_TIMESTAMP=1\n' "$SIGNING_IDENTITY" "$DEVELOPMENT_TEAM" >> "$GITHUB_ENV"
+          install_profile() {
+            local encoded="$1" setting="$2"
+            test -n "$encoded" || return 0
+            local profile="$RUNNER_TEMP/$setting.provisionprofile" xml="$RUNNER_TEMP/$setting.plist"
+            printf '%s' "$encoded" | base64 --decode > "$profile"
+            security cms -D -i "$profile" > "$xml"
+            local uuid name directory="$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"
+            uuid=$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$xml")
+            name=$(/usr/libexec/PlistBuddy -c 'Print :Name' "$xml")
+            [[ "$uuid" =~ ^[A-Fa-f0-9-]{36}$ ]]
+            [[ "$name" != *$'\n'* && "$name" != *$'\r'* ]]
+            mkdir -p "$directory"
+            cp "$profile" "$directory/$uuid.provisionprofile"
+            printf '%s\n' "$directory/$uuid.provisionprofile" >> "$RUNNER_TEMP/eyesaver-release-profiles"
+            printf '%s=%s\n' "$setting" "$name" >> "$GITHUB_ENV"
+          }
+          install_profile "$HOST_PROFILE_BASE64" HOST_PROFILE_SPECIFIER
+          install_profile "$CONTROL_PROFILE_BASE64" CONTROL_PROFILE_SPECIFIER
+
+      - name: Build and run the existing software checks
+        run: |
+          ./scripts/build.sh
+          ./scripts/check.sh
+
+      - name: Notarize every production release and staple its ticket
+        if: inputs.signing_mode == 'production'
+        env:
+          NOTARY_KEY_BASE64: ${{ secrets.NOTARY_KEY_BASE64 }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+        run: |
+          key="$RUNNER_TEMP/eyesaver-release-notary.p8"
+          printf '%s' "$NOTARY_KEY_BASE64" | base64 --decode > "$key"
+          ditto -c -k --sequesterRsrc --keepParent .build-app/Build/Products/Release/EyeSaver.app .build-app/notarization-upload.zip
+          xcrun notarytool submit .build-app/notarization-upload.zip --key "$key" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID" --wait
+          xcrun stapler staple .build-app/Build/Products/Release/EyeSaver.app
+          xcrun stapler validate .build-app/Build/Products/Release/EyeSaver.app
+
+      - name: Verify app and extension versions, signature policy and versioned package
+        env:
+          SOURCE_COMMIT: ${{ steps.source.outputs.commit }}
+        run: python3 "$RUNNER_TEMP/eyesaver-release.py" package "$RELEASE_VERSION" "$SIGNING_MODE" "$SOURCE_COMMIT" "$BUILD_NUMBER"
+
+      - name: Pass verified release assets to the publish job
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            .build-app/artifacts/${{ steps.source.outputs.asset }}
+            .build-app/artifacts/${{ steps.source.outputs.asset }}.sha256
+            .build-app/artifacts/release.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+      - name: Remove temporary signing material
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/eyesaver-release.keychain-db" || true
+          if test -f "$RUNNER_TEMP/eyesaver-release-profiles"; then
+            while IFS= read -r profile; do rm -f "$profile"; done < "$RUNNER_TEMP/eyesaver-release-profiles"
+          fi
+          rm -f "$RUNNER_TEMP/eyesaver-release.p12" "$RUNNER_TEMP/eyesaver-release-notary.p8" "$RUNNER_TEMP/eyesaver-release-profiles"
+          rm -f "$RUNNER_TEMP/HOST_PROFILE_SPECIFIER.provisionprofile" "$RUNNER_TEMP/HOST_PROFILE_SPECIFIER.plist"
+          rm -f "$RUNNER_TEMP/CONTROL_PROFILE_SPECIFIER.provisionprofile" "$RUNNER_TEMP/CONTROL_PROFILE_SPECIFIER.plist"
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Check out trusted publication tools
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Download this run's verified release assets
+        uses: actions/download-artifact@v8
+        with:
+          name: release-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release-assets
+
+      - name: Create exact-commit tag, upload assets and verify downloads before publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DRAFT: ${{ inputs.draft && 'true' || 'false' }}
+        run: python3 scripts/release.py publish release-assets/release.json --draft "$DRAFT"

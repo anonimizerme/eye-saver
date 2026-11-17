@@ -16,4 +16,5 @@ xcrun swiftc -parse-as-library -target arm64-apple-macos27.0 \
   App/Shared/CycleRunner.swift App/Tests/CycleRunnerChecks.swift \
   -o "$build_dir/Checks/CycleRunnerChecks"
 "$build_dir/Checks/CycleRunnerChecks"
+python3 scripts/test_release.py
 echo "Software checks passed; no monitor commands were sent."
