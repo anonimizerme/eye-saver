@@ -10,12 +10,91 @@ The app closes the monitor's on-screen menu after each switch. It changes the mo
 
 - Tested with a Samsung S27B80P over **DisplayPort → DisplayPort** on an Apple Silicon Mac.
 - macOS **27 or later** and Apple Silicon are required.
-- The checked build toolchain is **Xcode 27.2**, with its macOS SDK, plus [XcodeGen](https://github.com/yonaskolb/XcodeGen).
 - Support is based on the monitor model, not its serial number. Other Samsung models, other manufacturers, Intel Macs, and other cables or adapters are not claimed to work.
 
 Exactly one supported external monitor must be connected. The app and Control Center disable switching when the supported model is absent or multiple matching monitors are connected. The action rechecks availability when pressed, and the helper independently checks Samsung manufacturer `SAM`, the exact product name `S27B80P`, and an external DDC service before sending anything. It never falls back to another monitor.
 
-## Build and check
+## Install a prebuilt app
+
+**Prebuilt installation status: release and Homebrew validation is pending.** Source builds remain available below.
+
+Prebuilt apps require no Xcode or local compilation. Both installation methods use the same ARM64 release ZIP and keep one installed copy at `~/Applications/EyeSaver.app`. Read the signing status on the [release page](https://github.com/anonimizerme/eye-saver/releases) before installing.
+
+### Homebrew
+
+The cask lives in this repository, so the tap needs an explicit URL:
+
+```sh
+brew tap anonimizerme/eye-saver https://github.com/anonimizerme/eye-saver.git
+brew install --cask anonimizerme/eye-saver/eye-saver
+open "$HOME/Applications/EyeSaver.app"
+```
+
+If EyeSaver is already installed manually, follow [Move a manual installation to Homebrew](#move-a-manual-installation-to-homebrew) first. The cask refuses to overwrite an unmanaged app or leave another standard-location copy with the same bundle identifier.
+
+To update or remove the Homebrew installation:
+
+```sh
+brew update
+brew upgrade --cask anonimizerme/eye-saver/eye-saver
+
+# Remove the app when it is no longer needed.
+brew uninstall --cask anonimizerme/eye-saver/eye-saver
+```
+
+The cask targets `~/Applications` directly; no `--appdir` option is needed. Wait for the monitor menu to close before installing, updating, or removing the app. Homebrew preserves the release's signing and notarization status; it does not make an unnotarized preview notarized.
+
+### Download from GitHub Releases
+
+1. Open [Releases](https://github.com/anonimizerme/eye-saver/releases) and select the version you want. Development previews are marked **Pre-release**.
+2. Download `EyeSaver-VERSION-arm64.zip` and its matching `.zip.sha256` file. This is the Apple Silicon build.
+3. Verify the checksum from the folder containing both downloads. For example, replace the version below with the selected release:
+
+   ```sh
+   cd "$HOME/Downloads"
+   shasum -a 256 -c EyeSaver-1.0.0-beta.1-arm64.zip.sha256
+   ```
+
+4. Open the ZIP in Finder. Quit any running EyeSaver and wait for its monitor command to finish.
+5. Move `EyeSaver.app` into your home folder's `Applications` directory. For an existing manual installation, retain a backup and replace the whole app bundle. Keep one installed copy; move the extracted app rather than keeping a second copy in Downloads or `/Applications`.
+6. Open `~/Applications/EyeSaver.app` once, then follow [First launch and Control Center](#first-launch-and-control-center).
+
+For updates, repeat these steps with the new release and verify its checksum. If Homebrew manages the app, use `brew upgrade` instead of replacing its bundle manually. To switch from Homebrew to a manual installation, uninstall the cask first.
+
+### Signing and first-launch approval
+
+A **development preview** is signed with Apple Development and is intended for testing. It is not Developer ID signed or notarized. It can run on a Mac that permits it, but macOS may block its first launch. This does not mean that the monitor protocol needs a different certificate. Control Center acceptance still requires testing on the target Mac.
+
+Only open a preview if you trust the source and the checksum matches. If macOS blocks an unnotarized app that you choose to trust, follow [Apple's per-app approval instructions](https://support.apple.com/102445): try opening it, then review **System Settings → Privacy & Security → Open Anyway**. Do not disable Gatekeeper globally or remove quarantine as part of installation.
+
+A **production release** requires Developer ID Application signing and successful notarization. The Release workflow fails when those credentials or checks are missing; it does not substitute an ad-hoc build. [Developer ID certificates require Apple Developer Program membership](https://developer.apple.com/help/glossary/developer-id-certificate/).
+
+### First launch and Control Center
+
+Open EyeSaver once after installation or update. Then:
+
+1. Open Control Center and choose **Edit Controls**.
+2. Find **EyeSaver** in the gallery and drag **Eye Saver** into Control Center.
+3. Leave edit mode, close the monitor's on-screen menu, and press the button.
+
+The app also has a **Next mode** button in its window. Control Center can invoke the action with the app window closed. A second press while a switch is in progress is ignored.
+
+If an update leaves an old control binding, remove only the Eye Saver control and add it again. If the control is visible but does nothing, check the installed app's signature and registration; a successful compile alone does not validate background App Intent execution. Icon changes may take time to appear in the gallery.
+
+### Move a manual installation to Homebrew
+
+Do not install a second copy over the manually installed app. After adding the tap, run the migration helper from that checkout:
+
+```sh
+brew tap anonimizerme/eye-saver https://github.com/anonimizerme/eye-saver.git
+bash "$(brew --repository anonimizerme/eye-saver)/scripts/migrate-to-brew.sh"
+```
+
+The helper preserves the manual installation under `~/Library/Application Support/EyeSaver/Manual Backups` before installing the cask and restores it if installation fails. Backups use a non-`.app` name to avoid registering a second copy and survive removal of the tap. The helper does not compile the app. Open the installed app once afterwards and check the control with the app window closed. If you already have another EyeSaver copy in `/Applications`, resolve that duplicate before migrating; do not leave two copies with the same bundle identifier.
+
+## Build from source
+
+Source builds additionally require **Xcode 27.2**, its macOS SDK, and [XcodeGen](https://github.com/yonaskolb/XcodeGen).
 
 ```sh
 git clone git@github.com:anonimizerme/eye-saver.git
@@ -72,15 +151,7 @@ Use the full signing identity name if more than one certificate matches. The ins
 
 Keep the same bundle identifiers and signing identity when updating. The install step uses the same trusted LaunchServices registration as Xcode; it does not reset Control Center preferences or system databases.
 
-To add the control:
-
-1. Open Control Center and choose **Edit Controls**.
-2. Find **EyeSaver** in the gallery and drag **Eye Saver** into Control Center.
-3. Leave edit mode, close the monitor's on-screen menu, and press the button.
-
-The app also has a **Next mode** button in its window. Control Center can invoke the action with the app window closed. A second press while a switch is in progress is ignored.
-
-If an update leaves an old control binding, remove only the Eye Saver control and add it again. If the control is visible but does nothing, check the installed app's signature and registration; a successful compile alone does not validate background App Intent execution. Icon changes may take time to appear in the gallery.
+See [First launch and Control Center](#first-launch-and-control-center) after installing.
 
 ## How it works
 
@@ -136,7 +207,28 @@ The manual workflow also offers a separate signed mode. Configure these GitHub S
 - `SIGNING_IDENTITY` and `DEVELOPMENT_TEAM`: your Apple signing identity and Team ID
 - Optional `HOST_PROFILE_BASE64` and `CONTROL_PROFILE_BASE64`: provisioning profiles if your signing setup requires them
 
-Optional notarization additionally requires `NOTARY_KEY_BASE64`, `NOTARY_KEY_ID`, and `NOTARY_ISSUER_ID`, with a suitable Developer ID signing setup. The workflow imports supplied secrets into a temporary keychain and cleans it up. No key is exported from a developer's Mac automatically. A signed or notarized distribution is available only after those credentials are supplied and that workflow succeeds; no ready signed release is promised by the default build. The workflow uploads Actions artifacts rather than publishing GitHub Releases.
+Optional notarization additionally requires `NOTARY_KEY_BASE64`, `NOTARY_KEY_ID`, and `NOTARY_ISSUER_ID`, with a suitable Developer ID signing setup. The workflow imports supplied secrets into a temporary keychain and cleans it up. No key is exported from a developer's Mac automatically. The Build workflow uploads Actions artifacts; it does not publish GitHub Releases. An Apple Development signed artifact remains a test build without notarization.
+
+## Publish a GitHub Release
+
+Maintainers use the separate **Release** workflow in [GitHub Actions](https://github.com/anonimizerme/eye-saver/actions/workflows/release.yml):
+
+1. Choose **Run workflow**.
+2. Enter a version without a leading `v`, the source branch/tag/commit to build, and the signing mode.
+3. Keep **Draft** enabled to review the result before publishing, or disable it to publish immediately.
+4. For a test preview, choose `development-preview` and a prerelease version such as `1.0.0-beta.1`. For a production release, choose `production` and provide Developer ID and notarization credentials.
+
+The workflow resolves the selected source ref to one commit. Tag `vVERSION` points to that exact commit; a conflicting existing tag is rejected. It reuses the build, software-check, and packaging scripts, then attaches `EyeSaver-VERSION-arm64.zip` and its SHA-256 checksum to the release. App and extension use the numeric `MAJOR.MINOR.PATCH` version with the same build number. Preview releases are explicitly marked prereleases and describe their Apple Development signing status.
+
+Only the publishing job has `contents: write`. Push and pull-request checks retain read-only permissions. Production publishing requires successful Developer ID verification and notarization, with no fallback to an ad-hoc or development build.
+
+After publishing, update the cask to that versioned release asset and checksum:
+
+```sh
+./scripts/update-cask.py VERSION SHA256
+```
+
+Use the SHA-256 of the application ZIP from the release, not the outer Actions artifact ZIP. Review and commit the cask change, then verify installation and upgrade before announcing the new Homebrew version. The tap is this repository; no second repository or cross-repository write token is needed.
 
 ## Dependency
 
