@@ -1,0 +1,54 @@
+name: Update Homebrew cask
+
+on:
+  release:
+    types: [published]
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Published release tag, for example v1.0.0
+        type: string
+        required: true
+
+permissions: {}
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    concurrency:
+      group: update-homebrew-cask
+      queue: max
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+
+      - name: Verify the public ZIP and update the cask
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.event.release.tag_name }}
+        run: |
+          if [[ "$RELEASE_TAG" != v* ]]; then
+            echo "Expected a published tag beginning with v." >&2
+            exit 1
+          fi
+          python3 scripts/update-cask.py -- "${RELEASE_TAG#v}"
+
+      - name: Commit the updated cask to main
+        run: |
+          if git diff --quiet -- Casks/eye-saver.rb; then
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- Casks/eye-saver.rb
+          git commit -m 'Update Homebrew cask from published release'
+          git pull --rebase origin main
+          git push origin HEAD:refs/heads/main

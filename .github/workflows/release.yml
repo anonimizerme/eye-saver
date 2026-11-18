@@ -180,3 +180,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           DRAFT: ${{ inputs.draft && 'true' || 'false' }}
         run: python3 scripts/release.py publish release-assets/release.json --draft "$DRAFT"
+
+  update-cask:
+    needs: publish
+    if: inputs.draft == false
+    permissions:
+      contents: write
+    # Releases published by GITHUB_TOKEN do not trigger another workflow.
+    uses: ./.github/workflows/update-cask.yml
+    with:
+      tag: v${{ inputs.version }}

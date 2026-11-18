@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """Check cask pins and migration failure handling without changing installed apps."""
 
+import hashlib
 import importlib.util
+import io
 import os
 from pathlib import Path
 import re
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parent.parent
 SPEC = importlib.util.spec_from_file_location("update_cask", ROOT / "scripts/update-cask.py")
@@ -27,6 +30,48 @@ class CaskChecks(unittest.TestCase):
             with self.assertRaises(ValueError): UPDATE.render_cask(TEMPLATE, version, "a" * 64)
         for checksum in ["", "0" * 64, "a" * 63, "g" * 64, "a" * 64 + "\n"]:
             with self.assertRaises(ValueError): UPDATE.render_cask(TEMPLATE, "1.0.0", checksum)
+
+    def test_public_archive_is_verified_before_updating(self):
+        archive = b"published app archive"
+        digest = hashlib.sha256(archive).hexdigest()
+        asset = "EyeSaver-1.0.1-arm64.zip"
+        url = f"https://github.com/anonimizerme/eye-saver/releases/download/v1.0.1/{asset}"
+        previous = UPDATE.render_cask(TEMPLATE, "1.0.0", "a" * 64)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            casks = root / "Casks"
+            casks.mkdir()
+            (casks / "eye-saver.rb.in").write_text(TEMPLATE)
+            cask = casks / "eye-saver.rb"
+            cask.write_text(previous)
+            for checksum, filename, error in [(digest, "wrong.zip", "checksum must name"),
+                                               ("b" * 64, asset, "SHA-256 mismatch"),
+                                               (digest, asset, None)]:
+                with self.subTest(error=error):
+                    manifest = f"{checksum}  {filename}\n".encode()
+                    with patch.object(UPDATE, "urlopen", side_effect=[io.BytesIO(manifest), io.BytesIO(archive)]) as request:
+                        if error:
+                            with self.assertRaisesRegex(ValueError, error):
+                                UPDATE.update_cask(root, "1.0.1", None)
+                            self.assertEqual(cask.read_text(), previous)
+                        else:
+                            UPDATE.update_cask(root, "1.0.1", None)
+                            self.assertEqual(cask.read_text(), UPDATE.render_cask(TEMPLATE, "1.0.1", digest))
+                            self.assertEqual([call.args[0] for call in request.call_args_list], [url + ".sha256", url])
+
+    def test_older_release_does_not_replace_current_pin(self):
+        self.assertLess(UPDATE.version_order("1.1.0-rc.2"), UPDATE.version_order("1.1.0-rc.10"))
+        self.assertLess(UPDATE.version_order("1.1.0-rc.10"), UPDATE.version_order("1.1.0"))
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            cask = root / "Casks/eye-saver.rb"
+            cask.parent.mkdir()
+            previous = UPDATE.render_cask(TEMPLATE, "1.1.0", "a" * 64)
+            cask.write_text(previous)
+            with patch.object(UPDATE, "urlopen") as request:
+                UPDATE.update_cask(root, "1.0.10", None)
+            request.assert_not_called()
+            self.assertEqual(cask.read_text(), previous)
 
     def test_hook_order_and_guards(self):
         self.assertIn("depends_on arch: :arm64", TEMPLATE)

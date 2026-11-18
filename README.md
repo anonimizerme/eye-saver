@@ -228,15 +228,11 @@ The workflow resolves the selected source ref to one commit. Tag `vVERSION` poin
 
 Every release executable must have a secure Apple timestamp. If Apple timestamp access fails, the release stops; retry it after connectivity recovers rather than disabling the timestamp check.
 
-Only the publishing job has `contents: write`. Push and pull-request checks retain read-only permissions. Production publishing requires successful Developer ID verification and notarization, with no fallback to an ad-hoc or development build.
+Only the release publishing and cask update jobs have `contents: write`. Push and pull-request checks retain read-only permissions. Production publishing requires successful Developer ID verification and notarization, with no fallback to an ad-hoc or development build.
 
-After publishing, update the cask to that versioned release asset and checksum:
+After a release is published, [Update Homebrew cask](.github/workflows/update-cask.yml) downloads the public application ZIP and its `.sha256` file. If the checksum matches, it commits the version and checksum to `main`. This applies to stable releases and prereleases. Publishing an older version leaves a newer cask pin in place.
 
-```sh
-./scripts/update-cask.py VERSION SHA256
-```
-
-Use the SHA-256 of the application ZIP from the release, not the outer Actions artifact ZIP. Review and commit the cask change, then verify installation and upgrade before announcing the new Homebrew version. The tap is this repository; no second repository or cross-repository write token is needed.
+For a tag created before this workflow was added, run **Update Homebrew cask** from `main` and enter the published tag. After a cask update, verify installation and upgrade before announcing the new Homebrew version.
 
 ## Dependency
 
