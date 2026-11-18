@@ -12,7 +12,7 @@ The app closes the monitor's on-screen menu after each switch. It changes the mo
 - macOS **27 or later** and Apple Silicon are required.
 - Support is based on the monitor model, not its serial number. Other Samsung models, other manufacturers, Intel Macs, and other cables or adapters are not claimed to work.
 
-Exactly one supported external monitor must be connected. The app and Control Center disable switching when the supported model is absent or multiple matching monitors are connected. The action rechecks availability when pressed, and the helper independently checks Samsung manufacturer `SAM`, the exact product name `S27B80P`, and an external DDC service before sending anything. It never falls back to another monitor.
+Exactly one supported external monitor must be connected. The app checks availability whenever a switch is requested. Before sending a command, the helper independently checks Samsung manufacturer `SAM`, the exact product name `S27B80P`, and an external DDC service.
 
 ## Install a prebuilt app
 
@@ -163,7 +163,7 @@ The path is:
 
 `ControlWidgetButton → App Intent in the main app → embedded helper → DDC/CI E7 → monitor joystick events`
 
-The sandboxed extension uses public Core Graphics display information to determine availability. The main app runs the DDC helper outside the extension sandbox. Display information is checked again when the action runs, because the Control Center presentation can be cached.
+The main app checks connected displays through Core Graphics and runs the DDC helper outside the extension sandbox. The Control Center button stays available while the monitor is disconnected, and the action checks for the monitor on every press.
 
 The helper enables virtual keys with VCP `E7=0A01`, then sends:
 
@@ -183,7 +183,7 @@ The first three events select the Eye Saver icon and advance its native mode. Le
 - The app advances one mode; it cannot set an arbitrary absolute mode.
 - It does not reliably read the current Off/Low/High setting, so it does not display an inferred current mode.
 - A complete switch takes a few seconds. Wait for the monitor menu to close before another press.
-- Monitor reconnection and Control Center refresh can be asynchronous. Runtime checks prevent a stale enabled control from bypassing validation.
+- After reconnecting, wait for macOS to detect the monitor before switching modes.
 
 The software checks cover model selection, ambiguous or missing monitors, zero writes for rejected selections, disconnect or write failure handling, duplicate-click suppression, and recovery after errors. They do not prove DDC transport or visible OSD behavior on hardware. Hardware verification is limited to the supported monitor and connection described above.
 
