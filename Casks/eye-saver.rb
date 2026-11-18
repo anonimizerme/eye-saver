@@ -1,6 +1,6 @@
 cask "eye-saver" do
-  version "1.0.1"
-  sha256 "5d7d155467f151d4bfa7c7f5b6f96f70886b64fcafa8020be2055d89f985c67b"
+  version "1.0.2"
+  sha256 "9be21a3fd149705a2cf43c984d68dce9d168e1fed92c2ac9dbfe19539303202e"
 
   url "https://github.com/anonimizerme/eye-saver/releases/download/v#{version}/EyeSaver-#{version}-arm64.zip"
   name "Eye Saver"
