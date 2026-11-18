@@ -1,6 +1,5 @@
 import AppKit
 import SwiftUI
-import WidgetKit
 
 @main
 struct EyeSaverApp: App {
@@ -73,6 +72,5 @@ private struct EyeSaverView: View {
             availability = current
             message = nil
         }
-        ControlCenter.shared.reloadControls(ofKind: "local.eyesaver.next")
     }
 }

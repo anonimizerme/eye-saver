@@ -74,13 +74,13 @@ A **production release** requires Developer ID Application signing and successfu
 
 ### First launch and Control Center
 
-Open EyeSaver once after installation or update. Then:
+Open EyeSaver once after installing it. Then:
 
 1. Open Control Center and choose **Edit Controls**.
 2. Find **EyeSaver** in the gallery and drag **Eye Saver** into Control Center.
 3. Leave edit mode, close the monitor's on-screen menu, and press the button.
 
-The app also has a **Next mode** button in its window. Control Center can invoke the action with the app window closed. A second press while a switch is in progress is ignored.
+The app also has a **Next mode** button in its window. Control Center can invoke the action with the app window closed and checks the connected monitor on each press. A second press while a switch is in progress is ignored.
 
 If an update leaves an old control binding, remove only the Eye Saver control and add it again. If the control is visible but does nothing, check the installed app's signature and registration; a successful compile alone does not validate background App Intent execution. Icon changes may take time to appear in the gallery.
 
