@@ -29,7 +29,6 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: Eye Saver
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.utilities
-        INFOPLIST_KEY_LSUIElement: YES
     dependencies:
       - target: EyeSaverControl
         embed: true
